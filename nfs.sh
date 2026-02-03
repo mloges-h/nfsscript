@@ -1,48 +1,35 @@
 #!/bin/bash
 
-# -------- VARIABLES --------
 NFS_MOTHER_SERVER="172.16.10.50"
 NFS_BASE_PATH="/nfs"
 
-CURRENT_SERVER_IP=$(hostname -I | awk '{print $1}')
+read -p "Enter NFS directory name (already created on mother server): " NFS_DIR_NAME
+read -p "Enter mount directory name under /opt: " OPT_DIR_NAME
 
-echo "Current Server IP detected as: $CURRENT_SERVER_IP"
-echo "----------------------------------------"
+echo "----------------------------------"
+echo "Checking NFS common package..."
+echo "----------------------------------"
 
-# -------- STEP 1: NFS MOTHER SERVER --------
-read -p "Enter directory name to create on NFS mother server (/nfs): " NFS_DIR_NAME
+# Check & install nfs-common
+if ! dpkg -l | grep -qw nfs-common; then
+    echo "📦 nfs-common not found. Installing..."
+    apt update -y && apt install -y nfs-common
+else
+    echo "✅ nfs-common already installed"
+fi
 
-ssh root@$NFS_MOTHER_SERVER <<EOF
-mkdir -p $NFS_BASE_PATH/$NFS_DIR_NAME
+echo "----------------------------------"
 
-grep -q "^$NFS_BASE_PATH/$NFS_DIR_NAME" /etc/exports || \
-echo "$NFS_BASE_PATH/$NFS_DIR_NAME $CURRENT_SERVER_IP(rw,sync)" >> /etc/exports
-
-exportfs -a
-EOF
-
-echo "✅ Directory created and exported on NFS mother server"
-echo "----------------------------------------"
-
-# -------- STEP 2: CURRENT NFS COMMON SERVER --------
-read -p "Enter directory name to create under /opt on current server: " OPT_DIR_NAME
-
+# Create mount directory
 mkdir -p /opt/$OPT_DIR_NAME
 
+# Mount NFS
 mount -t nfs $NFS_MOTHER_SERVER:$NFS_BASE_PATH/$NFS_DIR_NAME /opt/$OPT_DIR_NAME
 
+# Verify mount
 if mount | grep -q "/opt/$OPT_DIR_NAME"; then
     echo "✅ NFS mounted successfully at /opt/$OPT_DIR_NAME"
 else
     echo "❌ NFS mount failed"
     exit 1
 fi
-
-echo "----------------------------------------"
-
-# -------- STEP 3: FSTAB ENTRY FOR LIVE SERVER --------
-echo "📌 Add the below entry in /etc/fstab on LIVE server:"
-echo ""
-echo "$NFS_MOTHER_SERVER:$NFS_BASE_PATH/$NFS_DIR_NAME  /opt/$OPT_DIR_NAME  nfs  rw,sync  0  0"
-echo ""
-echo "After adding, run: mount -a"
